@@ -55,7 +55,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--image_size",
-        default=None,
+        default=512,
         type=int,
         help=(
             "The image size that the model was trained on. Use 512 for Stable Diffusion v1.X and Stable Siffusion v2"
@@ -64,7 +64,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--prediction_type",
-        default=None,
+        default="epsilon",
         type=str,
         help=(
             "The prediction type that the model was trained on. Use 'epsilon' for Stable Diffusion v1.X and Stable"
@@ -99,7 +99,7 @@ if __name__ == "__main__":
         help="Whether to store pipeline in safetensors format or not.",
     )
     parser.add_argument("--dump_path", default=None, type=str, required=True, help="Path to the output model.")
-    parser.add_argument("--device", type=str, help="Device to use (e.g. cpu, cuda:0, cuda:1, etc.)")
+    parser.add_argument("--device", default="cuda", type=str, help="Device to use (e.g. cpu, cuda:0, cuda:1, etc.)")
     parser.add_argument(
         "--stable_unclip",
         type=str,
