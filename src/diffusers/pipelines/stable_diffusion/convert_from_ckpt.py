@@ -1328,8 +1328,8 @@ def download_from_original_stable_diffusion_ckpt(
                 unet=unet,
                 controlnet=controlnet_model,
                 scheduler=scheduler,
-                safety_checker=safety_checker,
-                feature_extractor=feature_extractor,
+                safety_checker=None,
+                feature_extractor=None,
             )
         else:
             pipe = StableDiffusionPipeline(
@@ -1338,8 +1338,8 @@ def download_from_original_stable_diffusion_ckpt(
                 tokenizer=tokenizer,
                 unet=unet,
                 scheduler=scheduler,
-                safety_checker=safety_checker,
-                feature_extractor=feature_extractor,
+                safety_checker=None,
+                feature_extractor=None,
             )
     else:
         text_config = create_ldm_bert_config(original_config)
