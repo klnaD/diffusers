@@ -60,6 +60,7 @@ from diffusers.pipelines.stable_diffusion.stable_unclip_image_normalizer import 
 from ...utils import is_omegaconf_available, is_safetensors_available, logging
 from ...utils.import_utils import BACKENDS_MAPPING
 
+print("[1;32mConverting to Diffusers ...")
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
