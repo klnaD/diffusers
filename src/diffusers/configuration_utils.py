@@ -200,7 +200,6 @@ class ConfigMixin:
                     f" {cls}.from_config(...) instead. Otherwise, please make sure to pass a configuration dictionary"
                     " instead. This functionality will be removed in v1.0.0."
                 )
-            deprecate("config-passed-as-path", "1.0.0", deprecation_message, standard_warn=False)
             config, kwargs = cls.load_config(pretrained_model_name_or_path=config, return_unused_kwargs=True, **kwargs)
 
         init_dict, unused_kwargs, hidden_dict = cls.extract_init_dict(config, **kwargs)
