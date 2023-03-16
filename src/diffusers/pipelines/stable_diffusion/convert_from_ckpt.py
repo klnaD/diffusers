@@ -1082,7 +1082,6 @@ def download_from_original_stable_diffusion_ckpt(
     if "global_step" in checkpoint:
         global_step = checkpoint["global_step"]
     else:
-        print("global_step key not found in model")
         global_step = None
 
     # NOTE: this while loop isn't great but this controlnet checkpoint has one additional
