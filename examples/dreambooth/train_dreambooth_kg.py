@@ -282,7 +282,13 @@ def parse_args():
         default=False,
         help="Offset Noise",
     )    
-    
+
+    parser.add_argument(
+        "--PNDM",
+        action="store_true",
+        default=False,
+        help="Use PNDM noise scheduler",
+    )
 
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
 
@@ -587,8 +593,10 @@ def main():
         eps=args.adam_epsilon,
     )
 
-    noise_scheduler = DDPMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
-    #noise_scheduler = PNDMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
+    if not args.PNDM:
+        noise_scheduler = DDPMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
+    else:
+        noise_scheduler = PNDMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
 
     train_dataset = DreamBoothDataset(
         instance_data_root=args.instance_data_dir,
