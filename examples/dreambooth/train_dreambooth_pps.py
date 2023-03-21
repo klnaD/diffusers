@@ -15,12 +15,13 @@ from torch.utils.data import Dataset
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import set_seed
-from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel
+from contextlib import nullcontext
+from diffusers import AutoencoderKL, DDPMScheduler, PNDMScheduler, StableDiffusionPipeline, UNet2DConditionModel
 from diffusers.optimization import get_scheduler
 from huggingface_hub import HfFolder, Repository, whoami
 from PIL import Image
 from torchvision import transforms
-from tqdm.auto import tqdm
+from tqdm import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 from Conv import *
 
@@ -238,14 +239,21 @@ def parse_args():
         action="store_true",
         default=False,        
         help="Train only the text-encoder",
-    )
+    )        
+    
+    parser.add_argument(
+        "--Resumetr",
+        type=str,
+        default="False",        
+        help="Resume training info",
+    )    
     
     parser.add_argument(
         "--Style",
         action="store_true",
         default=False,        
         help="Further reduce overfitting",
-    )    
+    )        
     
     parser.add_argument(
         "--Session_dir",
@@ -266,14 +274,21 @@ def parse_args():
         type=str,
         default="",
         help="The folder where captions files are stored",
-    )       
-    
+    )        
+
     parser.add_argument(
         "--offset_noise",
         action="store_true",
         default=False,
         help="Offset Noise",
     )
+    
+    parser.add_argument(
+        "--PNDM",
+        action="store_true",
+        default=False,
+        help="Use PNDM noise scheduler",
+    )    
 
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
 
@@ -340,8 +355,8 @@ class DreamBoothDataset(Dataset):
 
         self.image_transforms = transforms.Compose(
             [
-                transforms.Resize(size, interpolation=transforms.InterpolationMode.BILINEAR),
-                transforms.CenterCrop(size) if center_crop else transforms.RandomCrop(size),
+                #transforms.Resize(size, interpolation=transforms.InterpolationMode.BILINEAR),
+                #transforms.CenterCrop(size) if center_crop else transforms.RandomCrop(size),
                 transforms.ToTensor(),
                 transforms.Normalize([0.5], [0.5]),
             ]
@@ -381,7 +396,7 @@ class DreamBoothDataset(Dataset):
                   instance_prompt = ""
                 else:
                   instance_prompt = pt
-            #sys.stdout.write(" [0;32m" +instance_prompt[:45]+" [0m")
+            #sys.stdout.write(" [0;32m" +instance_prompt+" [0m")
             #sys.stdout.flush()
 
 
@@ -425,6 +440,16 @@ class PromptDataset(Dataset):
         example["index"] = index
         return example
 
+class LatentsDataset(Dataset):
+    def __init__(self, latents_cache, text_encoder_cache):
+        self.latents_cache = latents_cache
+        self.text_encoder_cache = text_encoder_cache
+
+    def __len__(self):
+        return len(self.latents_cache)
+
+    def __getitem__(self, index):
+        return self.latents_cache[index], self.text_encoder_cache[index]
 
 def get_full_repo_name(model_id: str, organization: Optional[str] = None, token: Optional[str] = None):
     if token is None:
@@ -532,6 +557,9 @@ def main():
     if not args.train_text_encoder:
         text_encoder.requires_grad_(False)
 
+    unet.enable_xformers_memory_efficient_attention()
+    vae.enable_xformers_memory_efficient_attention()
+
     if args.gradient_checkpointing:
         unet.enable_gradient_checkpointing()
         if args.train_text_encoder:
@@ -566,8 +594,11 @@ def main():
         eps=args.adam_epsilon,
     )
 
-    noise_scheduler = DDPMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
-
+    if not args.PNDM:
+        noise_scheduler = DDPMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
+    else:
+        noise_scheduler = PNDMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
+    
     train_dataset = DreamBoothDataset(
         instance_data_root=args.instance_data_dir,
         instance_prompt=args.instance_prompt,
@@ -640,6 +671,25 @@ def main():
     if not args.train_text_encoder:
         text_encoder.to(accelerator.device, dtype=weight_dtype)
 
+    latents_cache = []
+    text_encoder_cache = []
+    for batch in train_dataloader:
+        with torch.no_grad():
+            batch["pixel_values"] = batch["pixel_values"].to(accelerator.device, non_blocking=True, dtype=weight_dtype)
+            batch["input_ids"] = batch["input_ids"].to(accelerator.device, non_blocking=True)
+            latents_cache.append(vae.encode(batch["pixel_values"]).latent_dist)
+            if args.train_text_encoder:
+                text_encoder_cache.append(batch["input_ids"])
+            else:
+                text_encoder_cache.append(text_encoder(batch["input_ids"])[0])
+    train_dataset = LatentsDataset(latents_cache, text_encoder_cache)
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=1, collate_fn=lambda x: x, shuffle=True)
+
+    del vae
+    if not args.train_text_encoder:
+       del text_encoder
+    torch.cuda.empty_cache()        
+
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if overrode_max_train_steps:
@@ -655,10 +705,10 @@ def main():
     def bar(prg):
        br='|'+'█' * prg + ' ' * (25-prg)+'|'
        return br
-
+    
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
-
+    text_enc_context = nullcontext() if args.train_text_encoder else torch.no_grad()
     logger.info("***** Running training *****")
     logger.info(f"  Num examples = {len(train_dataset)}")
     logger.info(f"  Num batches each epoch = {len(train_dataloader)}")
@@ -678,8 +728,9 @@ def main():
         for step, batch in enumerate(train_dataloader):
             with accelerator.accumulate(unet):
                 # Convert images to latent space
-                latents = vae.encode(batch["pixel_values"].to(dtype=weight_dtype)).latent_dist.sample()
-                latents = latents * 0.18215
+                with torch.no_grad():
+                    latent_dist = batch[0][0]
+                    latents = latent_dist.sample() * 0.18215
 
                 # Sample noise that we'll add to the latents
                 if args.offset_noise:
@@ -697,7 +748,11 @@ def main():
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
                 # Get the text embedding for conditioning
-                encoder_hidden_states = text_encoder(batch["input_ids"])[0]
+                with text_enc_context:
+                    if args.train_text_encoder:
+                        encoder_hidden_states = text_encoder(batch[0][1])[0]
+                    else:
+                        encoder_hidden_states = batch[0][1]
 
                 # Predict the noise residual
                 model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
@@ -742,7 +797,7 @@ def main():
             if accelerator.sync_gradients:
                 progress_bar.update(1)
                 global_step += 1
-
+                
             fll=round((global_step*100)/args.max_train_steps)
             fll=round(fll/4)
             pr=bar(fll)
@@ -787,7 +842,8 @@ def main():
                         save_stable_diffusion_checkpoint(unet.config.cross_attention_dim == 1024, chkpth, pipeline.text_encoder, pipeline.unet, None, 0, 0, None, pipeline.vae)
                      print("Done, resuming training ...[0m")   
                      i=i+args.save_n_steps
-        
+                    
+           
         accelerator.wait_for_everyone()
 
     # Create the pipeline using using the trained modules and save it.
@@ -811,6 +867,11 @@ def main():
              pipeline.text_encoder.save_pretrained(txt_dir)
 
       elif args.train_only_unet:
+        if os.path.exists(str(args.output_dir+"/text_encoder_trained")):
+          text_encoder = CLIPTextModel.from_pretrained(args.output_dir, subfolder="text_encoder_trained")
+        else:
+          text_encoder = CLIPTextModel.from_pretrained(args.pretrained_model_name_or_path, subfolder="text_encoder")
+          
         pipeline = StableDiffusionPipeline.from_pretrained(
             args.pretrained_model_name_or_path,
             unet=accelerator.unwrap_model(unet),
