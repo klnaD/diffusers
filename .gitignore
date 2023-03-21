@@ -84,6 +84,7 @@ target/
 # IPython
 profile_default/
 ipython_config.py
+train_dreambooth_kg.py
 
 # pyenv
 .python-version
