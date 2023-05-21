@@ -830,6 +830,10 @@ def main():
                   inst =inst + "_step_" + str(global_step+1)
                   print(" [1;32mSAVING CHECKPOINT...")
                   if accelerator.is_main_process:
+                     if os.path.exists(str(args.output_dir+"/text_encoder_trained")):
+                        text_encoder = CLIPTextModel.from_pretrained(args.output_dir, subfolder="text_encoder_trained")
+                     else:
+                        text_encoder = CLIPTextModel.from_pretrained(args.pretrained_model_name_or_path, subfolder="text_encoder")                    
                      pipeline = StableDiffusionPipeline.from_pretrained(
                            args.pretrained_model_name_or_path,
                            unet=accelerator.unwrap_model(unet),
@@ -840,7 +844,11 @@ def main():
                         save_stable_diffusion_checkpoint(unet.config.cross_attention_dim == 1024, chkpth, pipeline.text_encoder, pipeline.unet, None, 0, 0, torch.float16, pipeline.vae)
                      else:
                         save_stable_diffusion_checkpoint(unet.config.cross_attention_dim == 1024, chkpth, pipeline.text_encoder, pipeline.unet, None, 0, 0, None, pipeline.vae)
-                     print("Done, resuming training ...[0m")   
+                     print("Done, resuming training ...[0m")
+                    
+                     del text_encoder
+                     torch.cuda.empty_cache()
+                    
                      i=i+args.save_n_steps
                     
            
