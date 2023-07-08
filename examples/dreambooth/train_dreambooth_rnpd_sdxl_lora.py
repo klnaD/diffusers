@@ -292,6 +292,13 @@ def parse_args():
     )
     
     parser.add_argument(
+        "--resume",
+        action="store_true",
+        default=False,
+        help="resume training",
+    )    
+    
+    parser.add_argument(
         "--dim",
         type=int,
         default=64,        
@@ -565,7 +572,10 @@ def main():
     text_encoder_two.eval()
     vae.eval()
     
-    network = create_network(1, args.dim, 20000, unet)    
+    model_path = os.path.join(args.Session_dir, os.path.basename(args.Session_dir) + ".safetensors")
+    network = create_network(1, args.dim, 20000, unet)
+    if args.resume:
+        network.load_weights(model_path)
 
     def set_diffusers_xformers_flag(model, valid):
         def fn_recursive_set_mem_eff(module: torch.nn.Module):
@@ -764,12 +774,7 @@ def main():
     if accelerator.is_main_process:
          network = accelerator.unwrap_model(network)
     accelerator.end_training()
-    inst=os.path.basename(args.Session_dir)
-    model_name = inst
-    ckpt_name = inst + ".safetensors"
-    ckpt_file = os.path.join(args.Session_dir, ckpt_name)
-    
-    network.save_weights(ckpt_file, torch.bfloat16, None)
+    network.save_weights(model_path, torch.bfloat16, None)
       
     accelerator.end_training()
 
