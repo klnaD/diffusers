@@ -29,11 +29,7 @@ from transformers import CLIPTextModel, CLIPTokenizer, CLIPTextConfig, CLIPTextM
 
 from Conv import *
 
-from networks.loramain import *
-from library.sdxl_model_util import *
-from library import sdxl_original_unet
-from safetensors.torch import load_file
-import library.train_util as train_util
+from networks.lorasdxl import *
 
 logger = get_logger(__name__)
 
