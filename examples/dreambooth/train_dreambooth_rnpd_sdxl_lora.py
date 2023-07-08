@@ -27,7 +27,7 @@ from torchvision import transforms
 from tqdm import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer, CLIPTextConfig, CLIPTextModelWithProjection
 
-from networks.lorasdxl import *
+from lora_sdxl import *
 
 logger = get_logger(__name__)
 
