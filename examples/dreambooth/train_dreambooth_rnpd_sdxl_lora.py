@@ -251,27 +251,7 @@ def parse_args():
         help="Get captions from filename",
     )    
     
-    
-    parser.add_argument(
-        "--dump_only_text_encoder",
-        action="store_true",
-        default=False,        
-        help="Dump only text-encoder",
-    )
-
-    parser.add_argument(
-        "--train_only_unet",
-        action="store_true",
-        default=False,        
-        help="Train only the unet",
-    )
-    
-    parser.add_argument(
-        "--train_only_text_encoder",
-        action="store_true",
-        default=False,        
-        help="Train only the text-encoder",
-    )        
+      
     
     parser.add_argument(
         "--Resumetr",
@@ -280,12 +260,7 @@ def parse_args():
         help="Resume training info",
     )    
     
-    parser.add_argument(
-        "--Style",
-        action="store_true",
-        default=False,        
-        help="Further reduce overfitting",
-    )        
+ 
     
     parser.add_argument(
         "--Session_dir",
@@ -329,8 +304,10 @@ def parse_args():
         help="LoRa dimension",
     )    
 
-
+    args = parser.parse_args()
+    
     return args
+
 
 
 class DreamBoothDataset(Dataset):
