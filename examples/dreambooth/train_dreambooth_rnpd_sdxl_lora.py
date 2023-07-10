@@ -380,7 +380,7 @@ class DreamBoothDataset(Dataset):
               cptpth=os.path.join(args.captions_dir, filename+'.txt')
               if os.path.exists(cptpth):
                 with open(cptpth, "r") as f:
-                   self.instance_prompt=f.read()
+                    instance_prompt=f.read()
               else:
                 instance_prompt=pt
             else:
