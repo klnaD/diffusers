@@ -727,7 +727,7 @@ def main():
  
                 # Sample noise that we'll add to the latents
                 if args.offset_noise:
-                    noise = torch.randn_like(model_input) + args.ofstnselvl * torch.randn(model_input.shape[0], model_input.shape[1], 1, 1, device=model_input.device)
+                    noise = torch.randn_like(model_input)# + args.ofstnselvl * torch.randn(model_input.shape[0], model_input.shape[1], 1, 1, device=model_input.device)
                 else:
                     noise = torch.randn_like(model_input)
 
