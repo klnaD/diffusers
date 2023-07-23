@@ -545,7 +545,7 @@ def main():
     
     # import correct text encoder classes
     text_encoder_cls_one = import_model_class_from_model_name_or_path(
-        args.pretrained_model_name_or_path
+        args.pretrained_model_name_or_path, subfolder="text_encoder"
     )
     text_encoder_cls_two = import_model_class_from_model_name_or_path(
         args.pretrained_model_name_or_path, subfolder="text_encoder_2"
