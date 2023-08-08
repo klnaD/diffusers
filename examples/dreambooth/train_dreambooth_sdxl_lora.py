@@ -774,7 +774,7 @@ def main():
     if accelerator.is_main_process:
          network = accelerator.unwrap_model(network)
     accelerator.end_training()
-    network.save_weights(model_path, torch.float32, None)
+    network.save_weights(model_path, torch.float16, None)
       
     accelerator.end_training()
 
