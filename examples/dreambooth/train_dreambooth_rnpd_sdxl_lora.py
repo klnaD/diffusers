@@ -658,7 +658,7 @@ def main():
         weight_dtype = torch.bfloat16
 
     unet.to(accelerator.device, dtype=weight_dtype)
-    vae.to(accelerator.device, dtype=weight_dtype)
+    vae.to(accelerator.device, dtype=torch.float32)
     network.prepare_grad_etc(network)
 
     
@@ -671,7 +671,7 @@ def main():
             batch["input_ids"] = batch["input_ids"].to(accelerator.device, non_blocking=True)
             batch["unet_added_conditions"] = batch["unet_added_conditions"]
 
-            batch["pixel_values"]=(vae.encode(batch["pixel_values"].to(accelerator.device, dtype=weight_dtype)).latent_dist.sample() * vae.config.scaling_factor)
+            batch["pixel_values"]=(vae.encode(batch["pixel_values"].to(accelerator.device, dtype=torch.float32)).latent_dist.sample() * vae.config.scaling_factor)
 
             latents_cache.append(batch["pixel_values"])
             text_encoder_cache.append(batch["input_ids"])
