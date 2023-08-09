@@ -698,17 +698,7 @@ def main():
        br='|'+'█' * prg + ' ' * (25-prg)+'|'
        return br
 
-
-    def append_dims(x, target_dims):
-        """Appends dimensions to the end of a tensor until it has target_dims dimensions."""
-        dims_to_append = target_dims - x.ndim
-        if dims_to_append < 0:
-            raise ValueError(
-                f"input has {x.ndim} dims but target_dims is {target_dims}, which is less"
-            )
-        return x[(...,) + (None,) * dims_to_append]
-    
-       
+     
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps    
     logger.info("***** Running training *****")
