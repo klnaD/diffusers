@@ -761,7 +761,7 @@ def main():
                 accelerator.backward(loss)
                 optimizer.step()
                 lr_scheduler.step()
-                optimizer.zero_grad(set_to_none=False)
+                optimizer.zero_grad()
 
                 # Checks if the accelerator has performed an optimization step behind the scenes
                 if accelerator.sync_gradients:
