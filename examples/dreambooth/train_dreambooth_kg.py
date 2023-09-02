@@ -472,6 +472,9 @@ def main():
         logging_dir=logging_dir,
     )
 
+    # Currently, it's not possible to do gradient accumulation when training two models with accelerate.accumulate
+    # This will be enabled soon in accelerate. For now, we don't allow gradient accumulation when training two models.
+    # TODO (patil-suraj): Remove this check when gradient accumulation with two models is enabled in accelerate.
     if args.train_text_encoder and args.gradient_accumulation_steps > 1 and accelerator.num_processes > 1:
         raise ValueError(
             "Gradient accumulation is not supported when training the text encoder in distributed training. "
@@ -591,8 +594,10 @@ def main():
         eps=args.adam_epsilon,
     )
 
-    noise_scheduler = DDPMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
-
+    if not args.PNDM:
+        noise_scheduler = DDPMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
+    else:
+        noise_scheduler = PNDMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
     
     train_dataset = DreamBoothDataset(
         instance_data_root=args.instance_data_dir,
@@ -655,7 +660,7 @@ def main():
 
     weight_dtype = torch.float32
     if args.mixed_precision == "fp16":
-        weight_dtype = torch.bfloat16
+        weight_dtype = torch.float16
     elif args.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
@@ -701,20 +706,6 @@ def main():
        br='|'+'█' * prg + ' ' * (25-prg)+'|'
        return br
     
-    def apply_snr_weight(loss, timesteps, noise_scheduler, gamma): 
-      alphas_cumprod = noise_scheduler.alphas_cumprod
-      sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
-      sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - alphas_cumprod)
-      alpha = sqrt_alphas_cumprod
-      sigma = sqrt_one_minus_alphas_cumprod
-      all_snr = (alpha / sigma) ** 2
-      snr = torch.stack([all_snr[t] for t in timesteps])
-      gamma_over_snr = torch.div(torch.ones_like(snr)*gamma,snr)
-      snr_weight = torch.minimum(gamma_over_snr,torch.ones_like(gamma_over_snr)).float() #from paper
-      loss = loss * snr_weight
-      return loss
-  
-   
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
     text_enc_context = nullcontext() if args.train_text_encoder else torch.no_grad()
@@ -771,21 +762,36 @@ def main():
                     target = noise
                 elif noise_scheduler.config.prediction_type == "v_prediction":
                     target = noise_scheduler.get_velocity(latents, noise, timesteps)
+                else:
+                    raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
-                loss = F.huber_loss(model_pred.float(), target.float(), reduction="mean")
-                
-                #loss = apply_snr_weight(loss, timesteps, noise_scheduler, 5)
-                #loss=loss.mean()
+                if args.with_prior_preservation:
+                    # Chunk the noise and model_pred into two parts and compute the loss on each part separately.
+                    model_pred, model_pred_prior = torch.chunk(model_pred, 2, dim=0)
+                    target, target_prior = torch.chunk(target, 2, dim=0)
+
+                    # Compute instance loss
+                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="none").mean([1, 2, 3]).mean()
+
+                    # Compute prior loss
+                    prior_loss = F.mse_loss(model_pred_prior.float(), target_prior.float(), reduction="mean")
+
+                    # Add the prior loss to the instance loss.
+                    loss = loss + args.prior_loss_weight * prior_loss
+                else:
+                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
                     params_to_clip = (
-                        itertools.chain(unet.parameters()))
-
-                    accelerator.clip_grad_norm_(params_to_clip, 0.8)
+                        itertools.chain(unet.parameters(), text_encoder.parameters())
+                        if args.train_text_encoder
+                        else unet.parameters()
+                    )
+                    accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
                 optimizer.step()
                 lr_scheduler.step()
-                optimizer.zero_grad(set_to_none=True)
+                optimizer.zero_grad()
 
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
@@ -798,18 +804,36 @@ def main():
             
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
-            progress_bar.set_description_str("Progress:")
+            progress_bar.set_description_str("Progress")
             accelerator.log(logs, step=global_step)
 
             if global_step >= args.max_train_steps:
                 break
-                        
+
+            if args.train_text_encoder and global_step == args.stop_text_encoder_training and global_step >= 5:
+              if accelerator.is_main_process:
+                print(" [0;32m" +" Freezing the text_encoder ..."+" [0m")                
+                frz_dir=args.output_dir + "/text_encoder_frozen"
+                if os.path.exists(frz_dir):
+                  subprocess.call('rm -r '+ frz_dir, shell=True)
+                os.mkdir(frz_dir)
+                pipeline = StableDiffusionPipeline.from_pretrained(
+                    args.pretrained_model_name_or_path,
+                    unet=accelerator.unwrap_model(unet),
+                    text_encoder=accelerator.unwrap_model(text_encoder),
+                )
+                pipeline.text_encoder.save_pretrained(frz_dir)
+                         
             if args.save_n_steps >= 200:
                if global_step < args.max_train_steps and global_step+1==i:
                   inst=os.path.basename(args.Session_dir)
                   inst =inst + "_step_" + str(global_step+1)
                   print(" [1;32mSAVING CHECKPOINT...")
                   if accelerator.is_main_process:
+                     if os.path.exists(str(args.output_dir+"/text_encoder_trained")):
+                        text_encoder = CLIPTextModel.from_pretrained(args.output_dir, subfolder="text_encoder_trained")
+                     else:
+                        text_encoder = CLIPTextModel.from_pretrained(args.pretrained_model_name_or_path, subfolder="text_encoder")                    
                      pipeline = StableDiffusionPipeline.from_pretrained(
                            args.pretrained_model_name_or_path,
                            unet=accelerator.unwrap_model(unet),
@@ -820,7 +844,11 @@ def main():
                         save_stable_diffusion_checkpoint(unet.config.cross_attention_dim == 1024, chkpth, pipeline.text_encoder, pipeline.unet, None, 0, 0, torch.float16, pipeline.vae)
                      else:
                         save_stable_diffusion_checkpoint(unet.config.cross_attention_dim == 1024, chkpth, pipeline.text_encoder, pipeline.unet, None, 0, 0, None, pipeline.vae)
-                     print("Done, resuming training ...[0m")   
+                     print("Done, resuming training ...[0m")
+                    
+                     del text_encoder
+                     torch.cuda.empty_cache()
+                    
                      i=i+args.save_n_steps
                     
            
