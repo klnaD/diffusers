@@ -892,7 +892,9 @@ def main():
             fll=round(fll/4)
             pr=bar(fll)
             
-            logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
+            Epochs="[0;32mEpoch" if step==0 else "Epoch"
+            logs = {Epochs: str(epoch+1)+'('+str(step+1)+'/'+str(len(train_dataloader))+')[0m', "loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
+
             progress_bar.set_postfix(**logs)
             progress_bar.set_description_str("Progress")
             accelerator.log(logs, step=global_step)
