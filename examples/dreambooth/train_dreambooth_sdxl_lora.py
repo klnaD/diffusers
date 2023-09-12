@@ -736,6 +736,7 @@ def main():
     
     if args.gradient_checkpointing:
         unet.enable_gradient_checkpointing()
+        unet.train()
 
     if args.scale_lr:
         args.learning_rate = (
@@ -752,10 +753,6 @@ def main():
         eps=args.adam_epsilon,
     )
 
-    if args.gradient_checkpointing:
-        unet.enable_gradient_checkpointing()
-        unet.train()
-    
     noise_scheduler = PNDMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler", use_auth_token=True)
     
     train_dataset = DreamBoothDataset(
