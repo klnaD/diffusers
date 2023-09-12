@@ -442,7 +442,7 @@ class PromptDataset(Dataset):
         return example
 
 
-def encode_prompt(args, text_encoders, tokenizers, prompt):
+def encode_prompt(text_encoders, tokenizers, prompt):
     prompt_embeds_list = []
 
    
