@@ -376,8 +376,8 @@ class DreamBoothDataset(Dataset):
         
         self.image_transforms = transforms.Compose(
             [
-                transforms.Resize(size, interpolation=transforms.InterpolationMode.BILINEAR),
-                transforms.CenterCrop(size) if center_crop else transforms.RandomCrop(size),
+                #transforms.Resize(size, interpolation=transforms.InterpolationMode.BILINEAR),
+                #transforms.CenterCrop(size) if center_crop else transforms.RandomCrop(size),
                 transforms.ToTensor(),
                 transforms.Normalize([0.5], [0.5]),
             ]
@@ -390,6 +390,7 @@ class DreamBoothDataset(Dataset):
         example = {}
         path = self.instance_images_path[index % self.num_instance_images]
         instance_image = Image.open(path)
+        width, height = instance_image.size
         if not instance_image.mode == "RGB":
             instance_image = instance_image.convert("RGB")
 
@@ -419,6 +420,8 @@ class DreamBoothDataset(Dataset):
         
         example["instance_prompt"]=instance_prompt
 
+        example["height"]=height
+        example["width"]=width      
 
         return example
 
@@ -483,24 +486,33 @@ def collate_fn(examples, args):
     pixel_values = [example["instance_images"] for example in examples]
     
     input_ids = [example["instance_prompt"] for example in examples]
+    
+    height = [example["height"] for example in examples]
+    
+    width = [example["width"] for example in examples]
 
     pixel_values = torch.stack(pixel_values)
     pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
 
+
     batch = {
         "input_ids": input_ids,
         "pixel_values": pixel_values,
-        "unet_added_conditions": {}
+        "unet_added_conditions": {},
+        "height":height,
+        "width":width
         }
         
+    
     return batch
+    
 
-def compute_embeddings(args, prompt, text_encoders, tokenizers):
-    original_size = (args.resolution, args.resolution)
-    target_size = (args.resolution, args.resolution)
+def compute_embeddings(height, width, prompt, text_encoders, tokenizers):
+    original_size = (height, width)
+    target_size = (height, width)
     crops_coords_top_left = (0, 0)
     
-    prompt_embeds, pooled_prompt_embeds = encode_prompt(args, text_encoders, tokenizers, prompt)
+    prompt_embeds, pooled_prompt_embeds = encode_prompt(text_encoders, tokenizers, prompt)
     add_text_embeds = pooled_prompt_embeds
     # Adapted from pipeline.StableDiffusionXLPipeline._get_add_time_ids
     add_time_ids = list(original_size + crops_coords_top_left + target_size)
@@ -515,16 +527,18 @@ def compute_embeddings(args, prompt, text_encoders, tokenizers):
     
     
 class LatentsDataset(Dataset):
-    def __init__(self, latents_cache, text_encoder_cache, cond_cache):
+    def __init__(self, latents_cache, text_encoder_cache, cond_cache, height_cache, width_cache):
         self.latents_cache = latents_cache
         self.text_encoder_cache = text_encoder_cache
         self.cond_cache = cond_cache
+        self.height_cache = height_cache
+        self.width_cache = width_cache
 
     def __len__(self):
         return len(self.latents_cache)
 
     def __getitem__(self, index):
-        return self.latents_cache[index], self.text_encoder_cache[index], self.cond_cache[index]
+        return self.latents_cache[index], self.text_encoder_cache[index], self.cond_cache[index], self.height_cache[index], self.width_cache[index]
 
 
 def main():
@@ -655,28 +669,33 @@ def main():
     vae.to(accelerator.device, dtype=torch.float32)
     unet.to(accelerator.device, dtype=weight_dtype)
     network.requires_grad_(True)
-    unet.eval()
-    vae.eval()
-    text_encoder_two.eval()
-    text_encoder_one.eval()
    
     
     latents_cache = []
     text_encoder_cache = []
     cond_cache= []
+    height_cache=[]
+    width_cache=[]
     for batch in train_dataloader:
                
         batch["input_ids"] = batch["input_ids"]
-        batch["pixel_values"]=vae.encode(batch["pixel_values"].to(accelerator.device, dtype=torch.float32)).latent_dist.sample() * vae.config.scaling_factor
+        batch["height"] = batch["height"]
+        batch["width"] = batch["width"]
+        
+        batch["pixel_values"]=vae.encode(batch["pixel_values"].to(accelerator.device, dtype=torch.float32, non_blocking=True)).latent_dist.sample() * vae.config.scaling_factor
 
         latents_cache.append(batch["pixel_values"])
         text_encoder_cache.append(batch["input_ids"])
+        
+        height_cache.append(batch["height"])
+        width_cache.append(batch["width"])
+                            
         cond_cache.append(batch["input_ids"])
 
-    train_dataset = LatentsDataset(latents_cache, text_encoder_cache, cond_cache)
+    train_dataset = LatentsDataset(latents_cache, text_encoder_cache, cond_cache, height_cache, width_cache)
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=1, collate_fn=lambda x: x, shuffle=True)
 
-    #del vae
+    del vae
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -740,7 +759,7 @@ def main():
                 unet_added_conditions= {"text_embeds": [], "time_ids": []}
                 for prompt in batch[0][1]:
                     with accelerator.autocast():
-                        hidden_states, unet_added_cond= compute_embeddings(args, prompt, text_encoders, tokenizers)
+                        hidden_states, unet_added_cond= compute_embeddings(batch[0][3][0], batch[0][4][0], prompt, text_encoders, tokenizers)
                         te_hidden_states.append(hidden_states)
                         unet_added_conditions["text_embeds"].append(unet_added_cond["text_embeds"])
                         unet_added_conditions["time_ids"].append(unet_added_cond["time_ids"])
