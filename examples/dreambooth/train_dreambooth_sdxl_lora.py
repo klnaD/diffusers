@@ -692,10 +692,7 @@ def main():
     text_encoder_one.requires_grad_(False)
     text_encoder_two.requires_grad_(False)
     unet.requires_grad_(False)
-    text_encoder_one.eval()
-    text_encoder_two.eval()
-    vae.eval()
-    unet.eval()
+
     
     model_path = os.path.join(args.Session_dir, os.path.basename(args.Session_dir) + ".safetensors")
     model_path_TI = os.path.join(args.Session_dir, os.path.basename(args.Session_dir) + "_TI.safetensors")
@@ -755,6 +752,10 @@ def main():
         eps=args.adam_epsilon,
     )
 
+    if args.gradient_checkpointing:
+        unet.enable_gradient_checkpointing()
+        unet.train()
+    
     noise_scheduler = PNDMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler", use_auth_token=True)
     
     train_dataset = DreamBoothDataset(
