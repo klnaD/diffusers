@@ -914,7 +914,7 @@ def main():
                     merge_lora_models(final_models, torch.float16, intrmdr)
                 else:
                     network.save_weights(intrmdr, torch.float16, None)                
-                print("[1;33mIntermediary LoRA saved at epoch "+str(epoch+1))   
+                print("[1;33mIntermediary LoRA saved at epoch "+str(epoch+1)+'[0m')
 
             if global_step >= args.max_train_steps:
                 break
