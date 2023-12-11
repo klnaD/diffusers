@@ -742,7 +742,7 @@ def main():
             if global_step >= args.max_train_steps:
                 break
                        
-            if args.save_n_steps >= 200:
+            if args.save_n_steps >= 50:
                if global_step < args.max_train_steps and global_step+1==i:
                   inst=os.path.basename(args.Session_dir)
                   inst =inst + "_step_" + str(global_step+1)
